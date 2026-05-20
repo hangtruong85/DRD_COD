@@ -42,7 +42,7 @@ from tqdm import tqdm
 import py_sod_metrics
 
 from datasets.mhcd_dataset import DatasetWithDepth
-from models.RGBDual_depth_COD_v2 import TripleStreamRGBDualDepthCOD
+from models.rdd_cod import RDD_COD
 from loss.cod_loss import CODLoss
 from utils.logger import setup_logger
 
@@ -61,7 +61,7 @@ def build_variant(variant_name: str, pretrained: bool = True):
     Group 3 — Loss (L1..L7)
     Group 4 — DQG robustness (Q1..Q6) — dùng M8 model + degraded depth
     """
-    model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+    model = RDD_COD(pretrained=pretrained)
     loss_override = {}
 
     # ────────────────────────────────────────────────────────────────────────
@@ -91,89 +91,89 @@ def build_variant(variant_name: str, pretrained: bool = True):
 
     elif variant_name == "M6":
         # + Depth stream with simple concat (no DepthGate, no DQG)
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         _disable_depth_gate(model)
         _disable_dqg(model)
         _disable_bam_triple(model)    # keep BAM-RGB only
 
     elif variant_name == "M7":
         # + Triple-CDFM (full depth gating) but no DQG, BAM still 2-stream
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         _disable_dqg(model)
         _disable_bam_triple(model)
 
     elif variant_name == "M8":
         # Full RDD-COD
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
 
     # ────────────────────────────────────────────────────────────────────────
     # GROUP 2: Depth stream design ablation
     # ────────────────────────────────────────────────────────────────────────
     elif variant_name == "D1":
         # w/o DepthGate (average depth with CNN-Trans directly)
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         _disable_depth_gate(model)
 
     elif variant_name == "D2":
         # w/o DQG at all integration points
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         _disable_dqg(model)
 
     elif variant_name == "D3":
         # w/o FEM depth injection
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         _disable_fem_depth(model)
 
     elif variant_name == "D4":
         # w/o BAM-Triple (use 2-stream BAM)
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         _disable_bam_triple(model)
 
     elif variant_name == "D5":
         # PVT-b0 depth backbone instead of b1
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         _replace_depth_backbone_b0(model, pretrained)
 
     elif variant_name == "D6":
         # Full RDD-COD (same as M8)
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
 
     # ────────────────────────────────────────────────────────────────────────
     # GROUP 3: Loss component ablation
     # ────────────────────────────────────────────────────────────────────────
     elif variant_name == "L1":
         # seg only
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         loss_override = {"lambda_edge": 0.0, "lambda_depth_edge": 0.0, "lambda_entropy": 0.0}
 
     elif variant_name == "L2":
         # seg + edge
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         loss_override = {"lambda_depth_edge": 0.0, "lambda_entropy": 0.0}
 
     elif variant_name == "L3":
         # seg + depth-edge
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         loss_override = {"lambda_edge": 0.0, "lambda_entropy": 0.0}
 
     elif variant_name == "L4":
         # seg + entropy
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         loss_override = {"lambda_edge": 0.0, "lambda_depth_edge": 0.0}
 
     elif variant_name == "L5":
         # seg + edge + depth-edge
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         loss_override = {"lambda_entropy": 0.0}
 
     elif variant_name == "L6":
         # seg + edge + entropy
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         loss_override = {"lambda_depth_edge": 0.0}
 
     elif variant_name == "L7":
         # Full loss
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
 
     # ────────────────────────────────────────────────────────────────────────
     # GROUP 4: DQG robustness — model is always Full (M8), depth is degraded
@@ -183,12 +183,12 @@ def build_variant(variant_name: str, pretrained: bool = True):
     # ────────────────────────────────────────────────────────────────────────
     elif variant_name in ("Q1", "Q2", "Q3"):
         # Q1=no-DQG+clean, Q2=no-DQG+simple, Q3=no-DQG+strong
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
         _disable_dqg(model)
 
     elif variant_name in ("Q4", "Q5", "Q6"):
         # Q4=DQG+clean, Q5=DQG+simple, Q6=DQG+strong
-        model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+        model = RDD_COD(pretrained=pretrained)
 
     else:
         raise ValueError(f"Unknown ablation variant: {variant_name}")
@@ -203,7 +203,7 @@ def build_variant(variant_name: str, pretrained: bool = True):
 def _M1_baseline(pretrained):
     """Baseline: dual RGB only, no fusion module, no BAM, no depth."""
     from models.RGBDual_depth_COD_v2 import (
-        TripleStreamRGBDualDepthCOD, Conv1x1, ConvBNR,
+        RDD_COD, Conv1x1, ConvBNR,
         Res2Net50, FEM
     )
     import timm
@@ -274,7 +274,7 @@ def _M_no_depth(pretrained, use_cdfm, use_bam, use_fem):
     """Helper for M2-M5: dual RGB, optionally with CDFM/BAM/FEM but no depth."""
     # Use the CTF-Net structure from CTF-Net baseline (import from CTF-Net if available,
     # otherwise use stripped version of RDD-COD with depth disabled).
-    model = TripleStreamRGBDualDepthCOD(pretrained=pretrained)
+    model = RDD_COD(pretrained=pretrained)
     # Force depth encoder to output zeros
     _freeze_depth_as_zeros(model)
     if not use_cdfm:
