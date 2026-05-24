@@ -1,5 +1,5 @@
 """
-Evaluation script for RDD-COD
+Evaluation script for DRD-COD
 Triple-stream architecture: RGB-CNN (Res2Net-50) + RGB-Transformer (PVT-v2-b2) + Depth (PVT-v2-b1)
 """
 
@@ -19,7 +19,7 @@ from datasets.mhcd_dataset import DatasetWithDepth
 # from datasets.camo_cod10k_dataset import DatasetWithDepth
 # from datasets.nc4k_dataset import DatasetWithDepth
 
-from models.rdd_cod import RDD_COD
+from models.drd_cod import DRD_COD
 from utils.logger import setup_logger
 
 
@@ -31,7 +31,7 @@ class EvalConfig:
         self.n_classes  = 1
         self.pretrained = False   # weights loaded from checkpoint
 
-        self.ckpt_path = "logs/RDD_COD_20260421_100747/best.pth"
+        self.ckpt_path = "logs/DRD_COD_20260421_100747/best.pth"
 
         # Dataset
         self.root = "../Datasets/COD10K"
@@ -47,7 +47,7 @@ class EvalConfig:
 
         # Output
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.save_dir = f"eval_results/RDD_COD_{self.split}_{ts}"
+        self.save_dir = f"eval_results/DRD_COD_{self.split}_{ts}"
         os.makedirs(self.save_dir, exist_ok=True)
 
         self.save_predictions = False
@@ -110,13 +110,13 @@ def evaluate_model(model, dataloader, device, config, logger):
 
     logger.info("Starting evaluation...")
     logger.info("=" * 60)
-    logger.info("Model: RDD_COD")
+    logger.info("Model: DRD_COD")
     logger.info("  - RGB-CNN:   Res2Net-50")
     logger.info("  - RGB-Trans: PVT-v2-b2")
     logger.info("  - Depth:     PVT-v2-b1")
-    logger.info("  - Fusion:    TripleCDFM")
-    logger.info("  - Boundary:  BAM-Triple")
-    logger.info("  - Decoder:   FEM")
+    logger.info("  - Fusion:    DCFM")
+    logger.info("  - Boundary:  TBAM")
+    logger.info("  - Decoder:   GRD")
     logger.info("=" * 60)
     logger.info("Using pred_d1 (finest scale) for metrics")
 
@@ -203,7 +203,7 @@ def save_visualizations(predictions, save_dir):
 # =========================================================
 def display_results(results, logger):
     print("\n" + "=" * 80)
-    print("EVALUATION RESULTS — RDD-COD")
+    print("EVALUATION RESULTS — DRD-COD")
     print("=" * 80)
 
     metrics_display = [
@@ -236,14 +236,14 @@ def display_results(results, logger):
 
 def save_results(results, config, logger):
     summary = {
-        "model": "RDD_COD",
+        "model": "DRD_COD",
         "architecture": {
             "rgb_cnn":   "Res2Net-50",
             "rgb_trans": "PVT-v2-b2",
             "depth":     "PVT-v2-b1",
-            "fusion":    "TripleCDFM",
-            "boundary":  "BAM-Triple",
-            "decoder":   "FEM",
+            "fusion":    "CDFM",
+            "boundary":  "TBAM",
+            "decoder":   "GRD",
         },
         "metrics": results,
         "config": {
@@ -271,7 +271,7 @@ def save_results(results, config, logger):
     txt_path = os.path.join(config.save_dir, "summary.txt")
     with open(txt_path, 'w') as f:
         f.write("=" * 50 + "\n")
-        f.write("RDD-COD Evaluation\n")
+        f.write("DRD-COD Evaluation\n")
         f.write("=" * 50 + "\n\n")
         f.write(f"Checkpoint : {config.ckpt_path}\n")
         f.write(f"Dataset    : {config.root} / {config.split}\n")
@@ -299,14 +299,14 @@ def main():
     logger = setup_logger(config.save_dir, "evaluation.log")
 
     logger.info("=" * 80)
-    logger.info("RDD-COD EVALUATION")
+    logger.info("DRD-COD EVALUATION")
     logger.info("=" * 80)
     logger.info("  RGB-CNN:   Res2Net-50")
     logger.info("  RGB-Trans: PVT-v2-b2")
     logger.info("  Depth:     PVT-v2-b1")
-    logger.info("  Fusion:    TripleCDFM")
-    logger.info("  Boundary:  BAM-Triple")
-    logger.info("  Decoder:   FEM")
+    logger.info("  Fusion:    DCFM")
+    logger.info("  Boundary:  TBAM")
+    logger.info("  Decoder:   GRD")
     logger.info("")
     logger.info(f"Checkpoint : {config.ckpt_path}")
     logger.info(f"Dataset    : {config.root} / {config.split}")
@@ -315,7 +315,7 @@ def main():
     logger.info("=" * 80)
 
     logger.info("Creating model...")
-    model = RDD_COD(
+    model = DRD_COD(
         n_classes=config.n_classes, pretrained=config.pretrained
     ).to(config.device)
 

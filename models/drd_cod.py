@@ -1,5 +1,5 @@
 """
-RDD-COD
+DRD-COD
 Triple-stream architecture: RGB-CNN (Res2Net) + RGB-Transformer (PVT) + Depth (PVT)
 
 Architecture:
@@ -9,14 +9,14 @@ Architecture:
 
     Depth ──► PVT-v2-b1     ──► d1,d2,d3,d4  (Depth features)
 
-    TripleCDFM at each stage:
+    DCFM at each stage:
         depth gate → CNN enhanced
         depth gate → Trans enhanced
         Adaptive fusion (global + local + depth branches)
 
-    BAM-Triple: Edge detection using x1 + t4 + d4
+    TBAM: Edge detection using x1 + t4 + d4
 
-    FEM Decoder: Progressive refinement with edge guidance + depth features
+    GRD Decoder: Progressive refinement with edge guidance + depth features
 """
 
 import torch
@@ -66,7 +66,7 @@ class ConvBNR(nn.Module):
         return self.block(x)
 
 
-class Conv1x1(nn.Module):
+class ConvBNR1x1(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, 1, bias=False)
@@ -221,7 +221,7 @@ class DepthQualityGate(nn.Module):
 # ============================================================================
 # BAM-Triple: Boundary Attention Module với 3 streams
 # ============================================================================
-class BAMTriple(nn.Module):
+class TBAM(nn.Module):
     """
     Boundary Attention Module sử dụng ba nguồn đặc trưng:
       x1 — CNN low-level features (chi tiết cạnh)
@@ -234,9 +234,9 @@ class BAMTriple(nn.Module):
     def __init__(self, cnn_channels=256, trans_channels=512, depth_channels=512):
         super().__init__()
         hidden = 256
-        self.reduce_cnn   = Conv1x1(cnn_channels, 64)
-        self.reduce_trans = Conv1x1(trans_channels, hidden)
-        self.reduce_depth = Conv1x1(depth_channels, hidden)
+        self.reduce_cnn   = ConvBNR1x1(cnn_channels, 64)
+        self.reduce_trans = ConvBNR1x1(trans_channels, hidden)
+        self.reduce_depth = ConvBNR1x1(depth_channels, hidden)
 
         self.fusion = nn.Sequential(
             ConvBNR(hidden + hidden + 64, hidden, 3),
@@ -265,9 +265,9 @@ class BAMTriple(nn.Module):
 
 
 # ============================================================================
-# TripleCDFM: Triple CNN-Depth-Transformer Fusion Module
+# DCFM: Depth-guided Cross-stream Fusion Module
 # ============================================================================
-class TripleCDFM(nn.Module):
+class DCFM(nn.Module):
     """
     Triple CNN-Depth-Transformer Fusion Module.
 
@@ -287,15 +287,15 @@ class TripleCDFM(nn.Module):
         self.out_channels = out_channels
 
         # Channel alignment
-        self.align_cnn   = Conv1x1(cnn_channels, out_channels)
-        self.align_trans = Conv1x1(trans_channels, out_channels)
-        self.align_depth = Conv1x1(depth_channels, out_channels)
+        self.align_cnn   = ConvBNR1x1(cnn_channels, out_channels)
+        self.align_trans = ConvBNR1x1(trans_channels, out_channels)
+        self.align_depth = ConvBNR1x1(depth_channels, out_channels)
 
         self.depth_gate = DepthGate(out_channels)
 
         # Global branch (Trans → CNN)
         self.global_ca   = ChannelAttention(out_channels)
-        self.global_conv = Conv1x1(out_channels * 2, out_channels)
+        self.global_conv = ConvBNR1x1(out_channels * 2, out_channels)
 
         # Local branch (CNN → Trans)
         self.local_sa = nn.Sequential(
@@ -305,7 +305,7 @@ class TripleCDFM(nn.Module):
             nn.Conv2d(out_channels // 4, out_channels, 1),
             nn.Sigmoid()
         )
-        self.local_conv = Conv1x1(out_channels * 2, out_channels)
+        self.local_conv = ConvBNR1x1(out_channels * 2, out_channels)
 
         # Depth branch
         self.depth_refine = ConvBNR(out_channels * 2, out_channels, 3)
@@ -372,9 +372,9 @@ class TripleCDFM(nn.Module):
 
 
 # ============================================================================
-# FEM: Feature Enhancement Module
+# GRD: Guided Refinement Decoder
 # ============================================================================
-class FEM(nn.Module):
+class GRD(nn.Module):
     """
     Feature Enhancement Module.
 
@@ -388,13 +388,13 @@ class FEM(nn.Module):
     """
     def __init__(self, high_channels, low_channels, out_channels, depth_channels=None):
         super().__init__()
-        self.align_high = Conv1x1(high_channels, out_channels)
-        self.align_low  = Conv1x1(low_channels, out_channels)
+        self.align_high = ConvBNR1x1(high_channels, out_channels)
+        self.align_low  = ConvBNR1x1(low_channels, out_channels)
 
         if depth_channels is not None:
             self.use_depth  = True
             self.depth_gate = nn.Sequential(
-                Conv1x1(depth_channels, out_channels // 4),
+                ConvBNR1x1(depth_channels, out_channels // 4),
                 nn.Conv2d(out_channels // 4, 1, 1),
                 nn.Sigmoid()
             )
@@ -430,13 +430,13 @@ class FEM(nn.Module):
             if depth_feat.shape[2:] != size:
                 depth_feat = F.interpolate(depth_feat, size=size, mode='bilinear', align_corners=False)
             # Reduce depth channels về out_channels // 4
-            depth_reduced = self.depth_gate[0](depth_feat)   # Conv1x1: depth_ch → C//4
+            depth_reduced = self.depth_gate[0](depth_feat)   # ConvBNR1x1: depth_ch → C//4
             # RGB reference: trung bình high+low, reduce về C//4 bằng channel grouping
             rgb_avg = (high_feat + low_feat) / 2              # (B, out_channels, H, W)
             B, C, H, W = rgb_avg.shape
             C4 = C // 4
-            rgb_ref_fem = rgb_avg.view(B, C4, 4, H, W).mean(dim=2)  # (B, C//4, H, W)
-            depth_reduced, _ = self.depth_quality_gate(depth_reduced, rgb_ref_fem)
+            rgb_ref_grd = rgb_avg.view(B, C4, 4, H, W).mean(dim=2)  # (B, C//4, H, W)
+            depth_reduced, _ = self.depth_quality_gate(depth_reduced, rgb_ref_grd)
             # Tạo spatial attention map từ depth
             depth_attn = torch.sigmoid(
                 self.depth_gate[1](depth_reduced)   # Conv2d: C//4 → 1 channel
@@ -467,7 +467,7 @@ class TripleEncoder(nn.Module):
     PVT-v2-b1 được dùng cho depth stream với trọng số pretrained được
     chuyển đổi từ 3-channel sang 1-channel bằng channel averaging.
 
-    Tại mỗi trong bốn stage, TripleCDFM hợp nhất đặc trưng từ ba stream
+    Tại mỗi trong bốn stage, DCFM hợp nhất đặc trưng từ ba stream
     thành một fused feature map duy nhất.
     """
     def __init__(self, pretrained=True):
@@ -490,12 +490,12 @@ class TripleEncoder(nn.Module):
                 'pvt_v2_b1', pretrained=False, features_only=True, in_chans=1)
         self.depth_channels = [64, 128, 320, 512]
 
-        # TripleCDFM tại mỗi stage
+        # DCFM tại mỗi stage
         out_ch = [64, 128, 320, 512]
-        self.cdfm1 = TripleCDFM(self.cnn_channels[0], self.trans_channels[0], self.depth_channels[0], out_ch[0])
-        self.cdfm2 = TripleCDFM(self.cnn_channels[1], self.trans_channels[1], self.depth_channels[1], out_ch[1])
-        self.cdfm3 = TripleCDFM(self.cnn_channels[2], self.trans_channels[2], self.depth_channels[2], out_ch[2])
-        self.cdfm4 = TripleCDFM(self.cnn_channels[3], self.trans_channels[3], self.depth_channels[3], out_ch[3])
+        self.dcfm1 = DCFM(self.cnn_channels[0], self.trans_channels[0], self.depth_channels[0], out_ch[0])
+        self.dcfm2 = DCFM(self.cnn_channels[1], self.trans_channels[1], self.depth_channels[1], out_ch[1])
+        self.dcfm3 = DCFM(self.cnn_channels[2], self.trans_channels[2], self.depth_channels[2], out_ch[2])
+        self.dcfm4 = DCFM(self.cnn_channels[3], self.trans_channels[3], self.depth_channels[3], out_ch[3])
 
     def _load_pretrained_1ch(self, model_name):
         """
@@ -528,10 +528,10 @@ class TripleEncoder(nn.Module):
         trans_feat = self.trans_backbone(rgb)
         depth_feat = self.depth_backbone(depth)
 
-        c1, w1 = self.cdfm1(cnn_feat[0], trans_feat[0], depth_feat[0])
-        c2, w2 = self.cdfm2(cnn_feat[1], trans_feat[1], depth_feat[1])
-        c3, w3 = self.cdfm3(cnn_feat[2], trans_feat[2], depth_feat[2])
-        c4, w4 = self.cdfm4(cnn_feat[3], trans_feat[3], depth_feat[3])
+        c1, w1 = self.dcfm1(cnn_feat[0], trans_feat[0], depth_feat[0])
+        c2, w2 = self.dcfm2(cnn_feat[1], trans_feat[1], depth_feat[1])
+        c3, w3 = self.dcfm3(cnn_feat[2], trans_feat[2], depth_feat[2])
+        c4, w4 = self.dcfm4(cnn_feat[3], trans_feat[3], depth_feat[3])
 
         fusion_weights = [w1, w2, w3, w4]   # để tính entropy reg loss nếu cần
         return [c1, c2, c3, c4], cnn_feat, trans_feat, depth_feat, fusion_weights
@@ -567,20 +567,20 @@ def compute_depth_edge(depth_gt):
 
 
 # ============================================================================
-# Complete Model: RDD_COD
+# Complete Model: DRD_COD
 # ============================================================================
-class RDD_COD(nn.Module):
+class DRD_COD(nn.Module):
     """
-    RDD-COD: RGB-Depth Dual-stream Camouflaged Object Detection.
+    DRD-COD: epth-Guided RGB Dual-Stream Network for Camouflaged Object Detection.
 
     Triple-stream encoder kết hợp Res2Net-50 (CNN), PVT-v2-b2 (RGB Transformer),
-    và PVT-v2-b1 (Depth Transformer). Tại mỗi stage, TripleCDFM hợp nhất
+    và PVT-v2-b1 (Depth Transformer). Tại mỗi stage, DCFM hợp nhất
     ba stream với depth-guided gating và adaptive weighted fusion.
 
-    BAMTriple phát hiện biên bằng cách kết hợp CNN low-level features,
+    TBAM phát hiện biên bằng cách kết hợp CNN low-level features,
     Transformer high-level features, và Depth high-level features.
 
-    FEM Decoder tinh chỉnh dự đoán theo hướng từ thô đến chi tiết,
+    GRD Decoder tinh chỉnh dự đoán theo hướng từ thô đến chi tiết,
     với edge attention, prediction từ stage trước, và depth features
     được tích hợp trực tiếp vào từng bước giải mã.
 
@@ -596,8 +596,8 @@ class RDD_COD(nn.Module):
         self.encoder = TripleEncoder(pretrained=pretrained)
         enc_ch = [64, 128, 320, 512]
 
-        # BAMTriple (cnn=256 từ Res2Net stage1, trans/depth=512 từ PVT stage4)
-        self.bam = BAMTriple(cnn_channels=256, trans_channels=512, depth_channels=512)
+        # TBAM (cnn=256 từ Res2Net stage1, trans/depth=512 từ PVT stage4)
+        self.bam = TBAM(cnn_channels=256, trans_channels=512, depth_channels=512)
 
         # Initial prediction block
         self.initial_block = nn.Sequential(
@@ -607,18 +607,18 @@ class RDD_COD(nn.Module):
         )
 
         # Channel reducers for fused features
-        self.reduce1 = Conv1x1(enc_ch[0], 64)
-        self.reduce2 = Conv1x1(enc_ch[1], 128)
-        self.reduce3 = Conv1x1(enc_ch[2], 256)
-        self.reduce4 = Conv1x1(enc_ch[3], 256)
+        self.reduce1 = ConvBNR1x1(enc_ch[0], 64)
+        self.reduce2 = ConvBNR1x1(enc_ch[1], 128)
+        self.reduce3 = ConvBNR1x1(enc_ch[2], 256)
+        self.reduce4 = ConvBNR1x1(enc_ch[3], 256)
 
-        # FEM Decoder: mỗi stage nhận depth features tương ứng từ PVT-b1
-        #   stage4 depth: 512 → fem3
-        #   stage3 depth: 320 → fem2
-        #   stage2 depth: 128 → fem1
-        self.fem3 = FEM(high_channels=256, low_channels=256, out_channels=256, depth_channels=512)
-        self.fem2 = FEM(high_channels=256, low_channels=128, out_channels=128, depth_channels=320)
-        self.fem1 = FEM(high_channels=128, low_channels=64,  out_channels=64,  depth_channels=128)
+        # GRD Decoder: mỗi stage nhận depth features tương ứng từ PVT-b1
+        #   stage4 depth: 512 → grd3
+        #   stage3 depth: 320 → grd2
+        #   stage2 depth: 128 → grd1
+        self.grd3 = GRD(high_channels=256, low_channels=256, out_channels=256, depth_channels=512)
+        self.grd2 = GRD(high_channels=256, low_channels=128, out_channels=128, depth_channels=320)
+        self.grd1 = GRD(high_channels=128, low_channels=64,  out_channels=64,  depth_channels=128)
 
         # Output heads
         self.pred1 = nn.Conv2d(64,  n_classes, 1)
@@ -661,21 +661,21 @@ class RDD_COD(nn.Module):
         pred_d4      = self.initial_block(concat_all)
         pred_d4_prob = torch.sigmoid(pred_d4)
 
-        # ── FEM Decoder ───────────────────────────────────────────────────────
+        # ── GRD Decoder ───────────────────────────────────────────────────────
         c1f = self.reduce1(c1)
         c2f = self.reduce2(c2)
         c3f = self.reduce3(c3)
         c4f = self.reduce4(c4)
 
-        f3           = self.fem3(c3f, c4f, edge_attn, pred_d4_prob, depth_feat=depth_feat[3])
+        f3           = self.grd3(c3f, c4f, edge_attn, pred_d4_prob, depth_feat=depth_feat[3])
         pred_d3      = self.pred3(f3)
         pred_d3_prob = torch.sigmoid(pred_d3)
 
-        f2           = self.fem2(c2f, f3, edge_attn, pred_d3_prob, depth_feat=depth_feat[2])
+        f2           = self.grd2(c2f, f3, edge_attn, pred_d3_prob, depth_feat=depth_feat[2])
         pred_d2      = self.pred2(f2)
         pred_d2_prob = torch.sigmoid(pred_d2)
 
-        f1           = self.fem1(c1f, f2, edge_attn, pred_d2_prob, depth_feat=depth_feat[1])
+        f1           = self.grd1(c1f, f2, edge_attn, pred_d2_prob, depth_feat=depth_feat[1])
         pred_d1      = self.pred1(f1)
 
         # ── Upsample to input size ────────────────────────────────────────────
@@ -701,7 +701,7 @@ class RDD_COD(nn.Module):
 # Test
 # ============================================================================
 if __name__ == "__main__":
-    model = RDD_COD(pretrained=False)
+    model = DRD_COD(pretrained=False)
 
     total_params     = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

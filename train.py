@@ -1,5 +1,5 @@
 """
-Training script for RDD-COD
+Training script for DRD-COD
 Triple-stream architecture: RGB-CNN (Res2Net-50) + RGB-Transformer (PVT-v2-b2) + Depth (PVT-v2-b1)
 """
 
@@ -16,7 +16,7 @@ import py_sod_metrics
 
 #from datasets.camo_cod10k_dataset import DatasetWithDepth
 from datasets.mhcd_dataset import DatasetWithDepth
-from models.rdd_cod import RDD_COD
+from models.drd_cod import DRD_COD
 from loss.cod_loss import CODLoss
 
 from utils.logger import setup_logger
@@ -32,10 +32,8 @@ class Config:
         self.pretrained = True
 
         # ── Dataset ────────────────────────────────────────────────────────
-        #self.root      = "../Datasets/camo_cod10k"
-        #self.dataset   = "CAMO_COD10K"
-        self.root = "../Datasets/CUINet"
-        self.dataset = "CAMO_COD10K_CUINet"
+        self.root      = "../Datasets/camo_cod10k"
+        self.dataset   = "CAMO_COD10K"
         self.img_size  = 352
         self.use_depth = True
 
@@ -56,7 +54,7 @@ class Config:
         self.seg_weights       = (1.0, 0.8, 0.6, 0.4)  # d1..d4
         self.lambda_edge       = 0.5    # boundary supervision
         self.lambda_depth_edge = 0.3    # depth Sobel edge supervision
-        self.lambda_entropy    = 0.01   # CDFM fusion weight entropy regularization
+        self.lambda_entropy    = 0.01   # DCFM fusion weight entropy regularization
 
         # ── Warmup schedule ────────────────────────────────────────────────
         self.warmup_epochs          = 5   # Phase 1: tất cả encoder bị freeze
@@ -79,7 +77,7 @@ class Config:
             self.log_dir = self.resume_dir
         else:
             ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-            self.log_dir = f"logs/RDD_COD_{self.dataset}_{ts}"
+            self.log_dir = f"logs/DRD_COD_{self.dataset}_{ts}"
         os.makedirs(self.log_dir, exist_ok=True)
 
 
@@ -241,8 +239,8 @@ def create_optimizer(model, config):
       - cnn_backbone:   pretrained Res2Net-50, lr thấp
       - trans_backbone: pretrained PVT-v2-b2,  lr thấp
       - depth_backbone: pretrained PVT-v2-b1,  lr trung bình
-      - fusion:         TripleCDFM + BAM,       lr cao
-      - decoder:        FEM + output heads,     lr cao
+      - fusion:         DCFM + TBAM,       lr cao
+      - decoder:        GRD + output heads,     lr cao
     """
     cnn_p, trans_p, depth_p, fusion_p, decoder_p = [], [], [], [], []
 
@@ -255,7 +253,7 @@ def create_optimizer(model, config):
             trans_p.append(param)
         elif 'depth_backbone' in name:
             depth_p.append(param)
-        elif any(k in name for k in ('cdfm', 'bam', 'depth_gate')):
+        elif any(k in name for k in ('dcfm', 'bam', 'depth_gate')):
             fusion_p.append(param)
         else:
             decoder_p.append(param)
@@ -289,7 +287,7 @@ def main():
     logger = setup_logger(config.log_dir, "train.log")
 
     logger.info("=" * 80)
-    logger.info("RDD-COD TRAINING")
+    logger.info("DRD-COD TRAINING")
     logger.info("=" * 80)
     logger.info("Loss configuration:")
     logger.info(f"  lambda_edge:        {config.lambda_edge}")
@@ -314,7 +312,7 @@ def main():
 
     # Model
     logger.info("Creating model...")
-    model = RDD_COD(
+    model = DRD_COD(
         n_classes=config.n_classes, pretrained=config.pretrained
     ).to(config.device)
 
