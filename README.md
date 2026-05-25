@@ -17,7 +17,7 @@ If you find this work useful, please cite:
   title   = {DRD-COD: A Depth-Guided RGB Dual-Stream Network for
              Camouflaged Object Detection},
   author  = {Truong, Thi-Thu-Hang and others},
-  journal = {arXiv preprint},
+  journal = {ResearchGate preprint},
   year    = {2026}
 }
 ```
